@@ -1,0 +1,661 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Журнал посещаемости</title>
+
+<!-- Telegram WebApp SDK -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- ExcelJS Library -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+
+<style>
+:root {
+  --bg: var(--tg-theme-bg-color, #F2F4F8);
+  --surface: var(--tg-theme-secondary-bg-color, #FFFFFF);
+  --ink: var(--tg-theme-text-color, #16213E);
+  --muted: var(--tg-theme-hint-color, #5F6B86);
+  --line: #D5DBE8;
+  --soft: #E7EBF4;
+  --accent: var(--tg-theme-button-color, #2B44C8);
+  --on-accent: var(--tg-theme-button-text-color, #FFFFFF);
+  --ok-bg: #DAF1E3;
+  --ok-fg: #14683A;
+  --no-bg: #FADADA;
+  --no-fg: #A32323;
+  --font-body: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --line: #2A3350;
+    --soft: #1F2742;
+    --ok-bg: #173A29;
+    --ok-fg: #7BE0A5;
+    --no-bg: #4A1D24;
+    --no-fg: #FF9A9A;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 15px/1.35 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-bottom: 12px;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, p { margin: 0; }
+
+.app { max-width: 560px; margin: 0 auto; }
+
+/* Шапка */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: 8px;
+  display: grid;
+  gap: 10px;
+}
+.titlebar { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+h1 { font: 700 19px/1.2 var(--font-body); letter-spacing: -0.01em; }
+.sync { font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: right; min-width: 0; }
+.sync.bad { color: var(--no-fg); }
+
+.weeknav { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 6px; align-items: stretch; }
+.icon {
+  width: 44px; height: 44px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line);
+  display: grid; place-items: center;
+}
+.icon svg { width: 18px; height: 18px; stroke: var(--ink); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.weeklabel {
+  background: transparent; border: 0; border-radius: 12px;
+  text-align: center; display: grid; align-content: center; gap: 1px; min-width: 0; padding: 2px 4px;
+}
+.weeklabel b { font: 600 16px/1.2 var(--font-body); }
+.weeklabel small { font: 500 11px/1.2 var(--font-mono); color: var(--muted); }
+
+.tabs { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.tab {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  min-height: 56px; padding: 6px 0 7px;
+  display: grid; justify-items: center; align-content: center; gap: 1px;
+}
+.tab .wd { font: 500 12px/1.2 var(--font-body); color: var(--muted); }
+.tab .dn { font: 700 17px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
+.tab .pg { display: block; width: 14px; height: 3px; border-radius: 2px; background: var(--line); margin-top: 3px; }
+.tab .pg.p { background: var(--muted); }
+.tab .pg.f { background: var(--ok-fg); }
+.tab.today { box-shadow: inset 0 0 0 2px var(--accent); }
+.tab.on { background: var(--accent); border-color: var(--accent); }
+.tab.on .wd, .tab.on .dn { color: var(--on-accent); }
+.tab.on .pg { background: var(--on-accent); opacity: 0.55; }
+.tab.on .pg.f { opacity: 1; }
+.tab.sum .pg { visibility: hidden; }
+
+/* Основная часть */
+main { display: grid; gap: 10px; padding-block: 6px 14px; }
+.dayhead { display: grid; gap: 4px; }
+h2 { font: 600 17px/1.25 var(--font-body); }
+.stats { font: 500 12px/1.4 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.stats b { color: var(--ink); font-weight: 700; }
+.stats .ab { color: var(--no-fg); }
+
+.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 2px 8px; }
+.row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) repeat(4, 38px);
+  gap: 4px; align-items: center;
+  padding-block: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.row:last-child { border-bottom: 0; }
+.row.head { padding-block: 8px 6px; }
+.row.head span { font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: center; text-transform: uppercase; letter-spacing: 0.04em; }
+.row.head .hl { text-align: left; }
+.num { font: 500 12px/1 var(--font-mono); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.nm {
+  background: transparent; border: 0; text-align: left;
+  min-height: 44px; padding: 3px 6px; border-radius: 8px; min-width: 0;
+}
+.nm b { display: block; font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.nm small { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.nm:active { background: var(--soft); }
+
+.cell {
+  width: 38px; height: 44px; padding: 0;
+  border: 1.5px dashed var(--line); border-radius: 8px; background: transparent;
+  font: 700 17px/1 var(--font-mono); color: var(--ink);
+  transition: background-color 0.12s;
+}
+.cell[data-v="+"] { background: var(--ok-bg); border: 1.5px solid transparent; color: var(--ok-fg); }
+.cell[data-v="н"] { background: var(--no-bg); border: 1.5px solid transparent; color: var(--no-fg); }
+
+/* Итог недели */
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 500 12px/1.3 var(--font-body); color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.srow {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) auto 46px;
+  gap: 8px; align-items: center; padding-block: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.srow:last-child { border-bottom: 0; }
+.srow .nm { min-height: 0; padding: 0; }
+.dots { display: flex; gap: 3px; }
+.dots i { display: block; width: 9px; height: 18px; border-radius: 3px; background: var(--soft); border: 1px solid var(--line); }
+.dots i.a { background: var(--no-bg); border-color: var(--no-fg); }
+.dots i.p { background: var(--ok-bg); border-color: var(--ok-fg); }
+.dots i.h { background: linear-gradient(to top, var(--ok-bg) 50%, var(--soft) 50%); border-color: var(--ok-fg); }
+.legend .dots i { height: 12px; }
+.badge {
+  font: 700 13px/1 var(--font-mono); text-align: center; padding: 6px 0; border-radius: 8px;
+  background: var(--soft); color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.badge.has { background: var(--no-bg); color: var(--no-fg); }
+
+/* Нижняя панель */
+.bar {
+  position: sticky; bottom: max(0px, env(safe-area-inset-bottom, 0px)); z-index: 5;
+  background: var(--bg); border-top: 1px solid var(--line);
+  padding-block: 10px; display: grid; gap: 8px;
+}
+.msg { font: 500 12px/1.4 var(--font-mono); color: var(--muted); text-align: center; }
+.msg.bad { color: var(--no-fg); }
+.btns { display: flex; gap: 8px; }
+.btn {
+  min-height: 48px; border-radius: 12px; padding: 0 16px;
+  font: 600 15px/1 var(--font-body);
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.btn.primary { flex: 1; background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <div class="titlebar">
+      <h1>Журнал посещаемости</h1>
+      <span id="sync" class="sync">Загрузка...</span>
+    </div>
+    <div class="weeknav">
+      <button id="prev" class="icon" aria-label="Предыдущая неделя">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <button id="today" class="weeklabel">
+        <b id="wl"></b>
+        <small id="ws"></small>
+      </button>
+      <button id="next" class="icon" aria-label="Следующая неделя">
+        <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+    <nav id="tabs" class="tabs"></nav>
+  </header>
+
+  <main id="view"></main>
+
+  <div class="bar">
+    <p id="msg" class="msg" hidden></p>
+    <div class="btns">
+      <button id="allbtn" class="btn">Все на месте</button>
+      <button id="export" class="btn primary">Выгрузить в Excel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Инициализация Telegram WebApp
+  var tg = window.Telegram ? window.Telegram.WebApp : null;
+  if (tg) {
+    tg.ready();
+    tg.expand();
+  }
+
+  function triggerHaptic() {
+    if (tg && tg.HapticFeedback) {
+      tg.HapticFeedback.impactOccurred('light');
+    }
+  }
+
+  var STUDENTS = [
+    'Архипов Богдан Иванович',
+    'Бабак Максим Константинович',
+    'Бордаев Никита Алексеевич',
+    'Валуев Никита Махсудчонович',
+    'Додаров Шахром Хошимович',
+    'Егоров Дмитрий Александрович',
+    'Елеусизов Джамшед Кобилджонович',
+    'Иванов Александр Александрович',
+    'Калябин Максим Сергеевич',
+    'Кузин Георгий Романович',
+    'Кулагин Сергей Андреевич',
+    'Кулаков Кирилл Иванович',
+    'Курочкин Илья Андреевич',
+    'Лобас Сергей Сергеевич',
+    'Михайлов Иван Сергеевич',
+    'Нурзода Иброхим Махмадулло',
+    'Османов Магомед Саидович',
+    'Пищулин Даниил Анатольевич',
+    'Тимофеев Лев Сергеевич',
+    'Филиппов Алексей Дмитриевич',
+    'Шарипов Абубакр Рахимбекович'
+  ];
+
+  var N = STUDENTS.length, SLOTS = 4, DAYS = 6, PER_WEEK = DAYS * SLOTS;
+  var P = '+', A = 'н', E = '-';
+  var DAY_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  var DAY_LONG = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+  var DAY_XLS = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+  var MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+  var MON_SHORT = ['янв.', 'февр.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'];
+  var BLANK = new Array(PER_WEEK + 1).join(E);
+  var MARK_RE = /^[-+н]{24}$/;
+
+  function $(s) { return document.querySelector(s); }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function ddmm(d) { return pad(d.getDate()) + '.' + pad(d.getMonth() + 1); }
+  function addDays(d, n) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; }
+  function mondayOf(d) {
+    var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+    return x;
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function nameParts(full) {
+    var p = full.split(' ');
+    return { top: p.slice(0, 2).join(' '), rest: p.slice(2).join(' '), sur: p[0] };
+  }
+
+  var today0 = new Date();
+  var weekStart = mondayOf(today0);
+  var view = Math.min((today0.getDay() + 6) % 7, DAYS - 1);
+  var marks = [];
+
+  function weekKey() { return 'att_' + ymd(weekStart); }
+  function blankMarks() { var a = []; for (var i = 0; i < N; i++) a.push(BLANK); return a; }
+  function validMarks(a) {
+    if (!Array.isArray(a) || a.length !== N) return false;
+    for (var i = 0; i < N; i++) if (typeof a[i] !== 'string' || !MARK_RE.test(a[i])) return false;
+    return true;
+  }
+
+  /* Хранилище: Telegram CloudStorage + LocalStorage fallback */
+  function setSync(status) {
+    var el = $('#sync');
+    if (!el) return;
+    el.textContent = status;
+  }
+
+  function loadMarks(callback) {
+    var key = weekKey();
+    if (tg && tg.CloudStorage) {
+      tg.CloudStorage.getItem(key, function (err, val) {
+        if (!err && val) {
+          try {
+            var parsed = JSON.parse(val);
+            if (validMarks(parsed)) {
+              setSync('облако TG');
+              callback(parsed);
+              return;
+            }
+          } catch(e) {}
+        }
+        fallbackLocal();
+      });
+    } else {
+      fallbackLocal();
+    }
+
+    function fallbackLocal() {
+      try {
+        var raw = localStorage.getItem(key);
+        if (raw) {
+          var a = JSON.parse(raw);
+          if (validMarks(a)) {
+            setSync('локально');
+            callback(a);
+            return;
+          }
+        }
+      } catch (e) {}
+      setSync('новые');
+      callback(blankMarks());
+    }
+  }
+
+  function saveMarks() {
+    var key = weekKey();
+    var val = JSON.stringify(marks);
+    try { localStorage.setItem(key, val); } catch (e) {}
+    
+    if (tg && tg.CloudStorage) {
+      setSync('сохранение...');
+      tg.CloudStorage.setItem(key, val, function (err) {
+        if (!err) setSync('сохранено в TG');
+        else setSync('ошибка облака');
+      });
+    } else {
+      setSync('сохранено локально');
+    }
+  }
+
+  function setMark(i, di, k, v) {
+    var idx = di * SLOTS + k, s = marks[i];
+    marks[i] = s.slice(0, idx) + v + s.slice(idx + 1);
+  }
+  function dayStats(di) {
+    var m = 0, a = 0;
+    for (var i = 0; i < N; i++) for (var k = 0; k < SLOTS; k++) {
+      var c = marks[i].charAt(di * SLOTS + k);
+      if (c !== E) { m++; if (c === A) a++; }
+    }
+    return { m: m, a: a, total: N * SLOTS };
+  }
+  function studentAbs(i) { var n = 0, s = marks[i]; for (var j = 0; j < s.length; j++) if (s.charAt(j) === A) n++; return n; }
+  function studentMarked(i) { var n = 0, s = marks[i]; for (var j = 0; j < s.length; j++) if (s.charAt(j) !== E) n++; return n; }
+  function weekAbs() { var n = 0; for (var i = 0; i < N; i++) n += studentAbs(i); return n; }
+
+  /* Отрисовка UI */
+  function weekLabel() {
+    var a = weekStart, b = addDays(a, DAYS - 1);
+    if (a.getMonth() === b.getMonth()) return a.getDate() + '–' + b.getDate() + ' ' + MONTHS[b.getMonth()];
+    return a.getDate() + ' ' + MON_SHORT[a.getMonth()] + ' – ' + b.getDate() + ' ' + MON_SHORT[b.getMonth()];
+  }
+  function renderWeek() {
+    var diff = Math.round((weekStart - mondayOf(new Date())) / (7 * 86400000));
+    var rel = diff === 0 ? 'эта неделя' : diff === -1 ? 'прошлая неделя' : diff === 1 ? 'следующая неделя' : 'к текущей неделе';
+    $('#wl').textContent = weekLabel();
+    $('#ws').textContent = rel + ' · ' + addDays(weekStart, DAYS - 1).getFullYear();
+  }
+  function renderTabs() {
+    var tk = ymd(new Date()), h = '';
+    for (var di = 0; di < DAYS; di++) {
+      var d = addDays(weekStart, di), st = dayStats(di);
+      var prog = st.m === 0 ? 'e' : (st.m === st.total ? 'f' : 'p');
+      h += '<button class="tab' + (view === di ? ' on' : '') + (ymd(d) === tk ? ' today' : '') + '" data-view="' + di + '">' +
+        '<span class="wd">' + DAY_SHORT[di] + '</span><span class="dn">' + d.getDate() + '</span><i class="pg ' + prog + '"></i></button>';
+    }
+    var tot = weekAbs();
+    h += '<button class="tab sum' + (view === DAYS ? ' on' : '') + '" data-view="' + DAYS + '">' +
+      '<span class="wd">Итог</span><span class="dn">' + tot + '</span><i class="pg e"></i></button>';
+    $('#tabs').innerHTML = h;
+  }
+  function cellLabel(i, k, v) {
+    return nameParts(STUDENTS[i]).sur + ', пара ' + (k + 1) + ': ' + (v === P ? 'был' : v === A ? 'нет' : 'не отмечено');
+  }
+  function statsHtml(di) {
+    var st = dayStats(di);
+    return 'Отмечено <b>' + st.m + '</b> из ' + st.total + ' · не было: <b class="ab">' + st.a + '</b>';
+  }
+  function renderDay() {
+    var di = view, d = addDays(weekStart, di);
+    var h = '<section class="dayhead"><h2>' + DAY_LONG[di] + ', ' + d.getDate() + ' ' + MONTHS[d.getMonth()] + '</h2>' +
+      '<p class="stats" id="stats">' + statsHtml(di) + '</p></section>';
+    h += '<div class="sheet"><div class="row head"><span>№</span><span class="hl">Студент</span><span>1</span><span>2</span><span>3</span><span>4</span></div>';
+    for (var i = 0; i < N; i++) {
+      var np = nameParts(STUDENTS[i]);
+      h += '<div class="row" data-i="' + i + '"><span class="num">' + (i + 1) + '</span>' +
+        '<button class="nm" data-act="row"><b>' + esc(np.top) + '</b><small>' + esc(np.rest) + '</small></button>';
+      for (var k = 0; k < SLOTS; k++) {
+        var v = marks[i].charAt(di * SLOTS + k);
+        h += '<button class="cell" data-act="cell" data-s="' + k + '" data-v="' + v + '" aria-label="' + esc(cellLabel(i, k, v)) + '">' + (v === E ? '' : v) + '</button>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+    $('#view').innerHTML = h;
+  }
+  function dayState(i, di) {
+    var s = marks[i].slice(di * SLOTS, di * SLOTS + SLOTS);
+    if (s.indexOf(A) >= 0) return 'a';
+    if (s === '++++') return 'p';
+    if (s.indexOf(P) >= 0) return 'h';
+    return '';
+  }
+  function renderSummary() {
+    var tot = weekAbs(), marked = 0;
+    for (var i = 0; i < N; i++) marked += studentMarked(i);
+    var h = '<section class="dayhead"><h2>Итог недели</h2>' +
+      '<p class="stats">Не было на парах: <b class="ab">' + tot + '</b> · отмечено <b>' + marked + '</b> из ' + (N * PER_WEEK) + '</p></section>';
+    h += '<p class="legend"><span><span class="dots"><i class="a"></i></span>есть пропуск</span><span><span class="dots"><i class="p"></i></span>все пары</span><span><span class="dots"><i></i></span>не отмечено</span></p>';
+    h += '<div class="sheet">';
+    for (var j = 0; j < N; j++) {
+      var np = nameParts(STUDENTS[j]), ab = studentAbs(j), dots = '';
+      for (var di = 0; di < DAYS; di++) dots += '<i class="' + dayState(j, di) + '"></i>';
+      h += '<div class="srow"><span class="num">' + (j + 1) + '</span>' +
+        '<div class="nm"><b>' + esc(np.top) + '</b><small>' + esc(np.rest) + '</small></div>' +
+        '<span class="dots" aria-hidden="true">' + dots + '</span>' +
+        '<span class="badge' + (ab ? ' has' : '') + '">' + (ab ? 'н ' + ab : '0') + '</span></div>';
+    }
+    h += '</div>';
+    $('#view').innerHTML = h;
+  }
+  function renderBar() { $('#allbtn').hidden = view === DAYS; }
+  function renderView() { if (view === DAYS) renderSummary(); else renderDay(); renderBar(); }
+  function paintAll() { renderWeek(); renderTabs(); renderView(); }
+
+  function paintRow(i) {
+    var row = document.querySelector('.row[data-i="' + i + '"]');
+    if (!row) return;
+    var cells = row.querySelectorAll('.cell');
+    for (var n = 0; n < cells.length; n++) {
+      var btn = cells[n], k = +btn.dataset.s, v = marks[i].charAt(view * SLOTS + k);
+      btn.dataset.v = v;
+      btn.textContent = v === E ? '' : v;
+      btn.setAttribute('aria-label', cellLabel(i, k, v));
+    }
+  }
+  function afterEdit() {
+    var st = $('#stats'); if (st) st.innerHTML = statsHtml(view);
+    renderTabs();
+    saveMarks();
+  }
+
+  var msgTimer = null;
+  function say(text, bad) {
+    var el = $('#msg');
+    el.textContent = text; el.hidden = false;
+    el.className = 'msg' + (bad ? ' bad' : '');
+    clearTimeout(msgTimer);
+    msgTimer = setTimeout(function () { el.hidden = true; }, 4500);
+  }
+
+  /* События кликов */
+  $('#view').addEventListener('click', function (e) {
+    var t = e.target.closest('[data-act]');
+    if (!t || view === DAYS) return;
+    triggerHaptic();
+    var i = +t.closest('.row').dataset.i;
+    if (t.dataset.act === 'cell') {
+      var k = +t.dataset.s, cur = marks[i].charAt(view * SLOTS + k);
+      setMark(i, view, k, cur === E ? P : cur === P ? A : E);
+    } else {
+      var s = marks[i].slice(view * SLOTS, view * SLOTS + SLOTS), nv = s === '++++' ? A : s === 'нннн' ? E : P;
+      for (var q = 0; q < SLOTS; q++) setMark(i, view, q, nv);
+    }
+    paintRow(i);
+    afterEdit();
+  });
+
+  $('#tabs').addEventListener('click', function (e) {
+    var t = e.target.closest('[data-view]');
+    if (!t) return;
+    triggerHaptic();
+    view = +t.dataset.view;
+    renderTabs(); renderView();
+    window.scrollTo(0, 0);
+  });
+
+  $('#allbtn').addEventListener('click', function () {
+    triggerHaptic();
+    var changed = 0;
+    for (var i = 0; i < N; i++) for (var k = 0; k < SLOTS; k++) {
+      if (marks[i].charAt(view * SLOTS + k) === E) { setMark(i, view, k, P); changed++; }
+    }
+    if (!changed) { say('Все клетки этого дня уже отмечены.'); return; }
+    renderDay();
+    afterEdit();
+    say('Пустые клетки отмечены как «был».');
+  });
+
+  function gotoWeek(ws) {
+    weekStart = ws;
+    loadMarks(function (m) {
+      marks = m;
+      paintAll();
+      window.scrollTo(0, 0);
+    });
+  }
+  $('#prev').addEventListener('click', function () { triggerHaptic(); gotoWeek(addDays(weekStart, -7)); });
+  $('#next').addEventListener('click', function () { triggerHaptic(); gotoWeek(addDays(weekStart, 7)); });
+  $('#today').addEventListener('click', function () {
+    triggerHaptic();
+    var cur = mondayOf(new Date());
+    if (cur.getTime() !== weekStart.getTime()) gotoWeek(cur);
+  });
+
+  /* Выгрузка в Excel */
+  function buildWorkbook() {
+    var wb = new ExcelJS.Workbook();
+    var ws = wb.addWorksheet('Посещаемость', {
+      views: [{ state: 'frozen', xSplit: 2, ySplit: 2 }],
+      pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+    var lastCol = 2 + PER_WEEK, totCol = lastCol + 1;
+    var edge = { style: 'thin', color: { argb: 'FF9AA3B5' } };
+    var border = { top: edge, left: edge, bottom: edge, right: edge };
+    var head = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+    var center = { horizontal: 'center', vertical: 'middle', wrapText: true };
+
+    ws.getColumn(1).width = 5;
+    ws.getColumn(2).width = 40;
+    for (var c = 3; c <= lastCol; c++) ws.getColumn(c).width = 4.6;
+    ws.getColumn(totCol).width = 12;
+
+    ws.mergeCells(1, 1, 2, 1); ws.mergeCells(1, 2, 2, 2); ws.mergeCells(1, totCol, 2, totCol);
+    ws.getCell(1, 1).value = '№';
+    ws.getCell(1, 2).value = 'ФИО';
+    ws.getCell(1, totCol).value = 'Пропусков';
+    for (var di = 0; di < DAYS; di++) {
+      var c0 = 3 + di * SLOTS;
+      ws.mergeCells(1, c0, 1, c0 + SLOTS - 1);
+      ws.getCell(1, c0).value = DAY_XLS[di] + ' ' + ddmm(addDays(weekStart, di));
+      for (var k = 0; k < SLOTS; k++) ws.getCell(2, c0 + k).value = k + 1;
+    }
+    ws.getRow(1).height = 32;
+    for (var r = 1; r <= 2; r++) for (var cc = 1; cc <= totCol; cc++) {
+      var hc = ws.getCell(r, cc);
+      hc.fill = head; hc.border = border; hc.alignment = center; hc.font = { bold: true };
+    }
+
+    var colL = function (n) { return ws.getColumn(n).letter; };
+    for (var i = 0; i < N; i++) {
+      var row = 3 + i;
+      ws.getCell(row, 1).value = i + 1;
+      ws.getCell(row, 2).value = STUDENTS[i];
+      for (var j = 0; j < PER_WEEK; j++) {
+        var ch = marks[i].charAt(j), cell = ws.getCell(row, 3 + j);
+        if (ch !== E) cell.value = ch;
+        if (ch === P) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDAF1E3' } }; cell.font = { bold: true, color: { argb: 'FF14683A' } }; }
+        if (ch === A) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFADADA' } }; cell.font = { bold: true, color: { argb: 'FFA32323' } }; }
+      }
+      ws.getCell(row, totCol).value = { formula: 'COUNTIF(' + colL(3) + row + ':' + colL(lastCol) + row + ',"н")', result: studentAbs(i) };
+      for (var cx = 1; cx <= totCol; cx++) {
+        var x = ws.getCell(row, cx);
+        x.border = border;
+        x.alignment = cx === 2 ? { vertical: 'middle' } : center;
+      }
+    }
+
+    var foot = 3 + N;
+    ws.mergeCells(foot, 1, foot, 2);
+    ws.getCell(foot, 1).value = 'Не было на паре';
+    var grand = 0;
+    for (var f = 3; f <= lastCol; f++) {
+      var n = 0;
+      for (var s = 0; s < N; s++) if (marks[s].charAt(f - 3) === A) n++;
+      ws.getCell(foot, f).value = { formula: 'COUNTIF(' + colL(f) + '3:' + colL(f) + (foot - 1) + ',"н")', result: n };
+      grand += n;
+    }
+    ws.getCell(foot, totCol).value = { formula: 'SUM(' + colL(totCol) + '3:' + colL(totCol) + (foot - 1) + ')', result: grand };
+    for (var fc = 1; fc <= totCol; fc++) {
+      var fx = ws.getCell(foot, fc);
+      fx.fill = head; fx.border = border; fx.font = { bold: true };
+      fx.alignment = fc <= 2 ? { horizontal: 'left', vertical: 'middle' } : center;
+    }
+    return wb;
+  }
+
+  function exportXlsx() {
+    triggerHaptic();
+    if (!window.ExcelJS) { say('Не загрузилась библиотека ExcelJS.', true); return; }
+    var btn = $('#export');
+    btn.disabled = true; btn.textContent = 'Готовлю файл…';
+
+    buildWorkbook().xlsx.writeBuffer().then(function (buf) {
+      var fileName = 'Посещаемость_' + ddmm(weekStart) + '-' + ddmm(addDays(weekStart, DAYS - 1)) + '.xlsx';
+      var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      var file = new File([blob], fileName, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({
+          files: [file],
+          title: 'Журнал посещаемости',
+          text: 'Выгрузка посещаемости'
+        }).then(function () {
+          say('Файл отправлен.');
+        }).catch(function (e) {
+          if (e.name !== 'AbortError') say('Ошибка отправки файла', true);
+        });
+      } else {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        say('Файл скачан.');
+      }
+    }).catch(function () {
+      say('Ошибка при формировании Excel.', true);
+    }).then(function () {
+      btn.disabled = false; btn.textContent = 'Выгрузить в Excel';
+    });
+  }
+
+  $('#export').addEventListener('click', exportXlsx);
+
+  /* Запуск */
+  loadMarks(function (m) {
+    marks = m;
+    paintAll();
+  });
+})();
+</script>
+</body>
+</html>
